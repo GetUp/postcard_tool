@@ -1,0 +1,7 @@
+name: "Somebody Political"
+addressLine1: "100 Main Road"
+addressLine2:
+city: "Sydney"
+state: "NSW"
+zip: "2000"
+country: "Australia"

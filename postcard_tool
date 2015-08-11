@@ -1,0 +1,119 @@
+#!/usr/bin/env ruby
+#/ NB: this is intended to be run from a developer's machine
+#/
+#/ grab the page_id, run the following SQL and export it to a file that you pass as an arg to this script (leave headers in)
+#/ `SELECT id, body FROM user_emails WHERE page_id = 2000 AND id NOT IN (** already sent IDs **)`
+#/
+#/ Usage: ./postcard_tool -f query_result.csv -r recipient.yml -u "postcard_front.jpg"
+#/ Usage: ./postcard_tool -f query_result.csv -r recipient.yml -l "http://example.com/postcard_front.jpg"
+#/ Usage: ./postcard_tool -f query_result.csv -r recipient.yml -i "c9234ec7-ed7b-4dc4-ac79-abcdefgh"
+
+$stderr.sync = true
+require "optparse"
+require "json"
+require "csv"
+require "yaml"
+
+begin
+  require "rest-client"
+rescue LoadError
+  puts "rest-client gem is required: gem install rest-client"
+  exit 1
+end
+
+API_KEY = ENV["SCRIBBLEPICS_API_KEY"]
+API_URL = ENV["SCRIBBLEPICS_API_URL"]
+
+# defaults
+dry_run = true
+image_file = nil
+image_url = nil
+image_id = nil
+content_file = nil
+recipient_file = nil
+payload = { apiKey: API_KEY }
+verbose = false
+
+
+file = __FILE__
+ARGV.options do |opts|
+  opts.on("-s", "--send-cards")                 { dry_run = false }
+  opts.on("-u", "--upload-image=val", String)   { |val| image_file = val }
+  opts.on("-l", "--image-url=val", String)      { |val| image_url = val }
+  opts.on("-i", "--image-id=val", String)       { |val| image_id = val }
+  opts.on("-f", "--content-file=val", String)   { |val| content_file = val }
+  opts.on("-r", "--recipient-file=val", String) { |val| recipient_file = val }
+  opts.on("-v", "--verbose-output")             { verbose = true }
+  opts.on_tail("-h", "--help")                  { exec "grep ^#/<'#{file}'|cut -c4-" }
+  opts.parse!
+end
+
+if image_file
+  url = "#{API_URL}/image/create"
+  file = File.new(image_file, "r")
+  
+  response = RestClient.post(url, payload.merge(image: file))
+  image_id = JSON.parse(response)["imageId"]
+  puts "image_id is #{image_id}"
+end
+
+if content_file && recipient_file && (image_id || image_url)
+  puts "creating postcards"
+  url = "#{API_URL}/postcard/create"
+  recipient = YAML.load_file(recipient_file).reject{|k,v| v.nil?}
+  image = image_url ? {imageUrl: image_url} : {imageId: image_id}
+  template = payload.merge(recipient: recipient).merge(image)
+  json_headers = {content_type: :json, accept: :json}
+  postcard_ids = []
+
+  begin
+    CSV.foreach(content_file, headers: true) do |row|
+      name, email = row["body"].split("\r\n")[-3..-2]
+      sender = {
+        firstName: name.split[0],
+        lastName: name.split[1],
+        email: email
+      }
+      message = row["body"].tr("\r","").tr("[]","").gsub(/\n\n+/,"\n\n")
+      if message.match(/YOUR NAME/) || message.match(/YOUR REASON/)
+        puts "\nmessage id: #{row["id"]} skipped due to unreplaced defaults"
+        next
+      end
+      postcard = template.merge(sender: sender, message: message)
+
+      RestClient.log = Logger.new(STDOUT) if verbose
+      response = RestClient.post(url, postcard.to_json, json_headers)
+      postcard_ids << [row["id"], JSON.parse(response)["postcardId"]]
+      print "."
+    end
+    puts ""
+  rescue => e
+    require "pry"; binding.pry
+    puts postcard_ids.map{|a| a.join(",") }.join("\n")
+  end
+
+
+  if dry_run
+    puts "preparing preview URLs"
+    results = postcard_ids.map do |_, id|
+      "#{API_URL}/postcard/preview/back?postcardId=#{id}&scale=0.5"
+    end
+  else
+    puts "sending postcards"
+    url = "#{API_URL}/postcard/send"
+    results = []
+    postcard_ids.each do |db_id, postcard_id|
+      request_data = payload.merge(postcardId: postcard_id)
+      response = RestClient.post(url, request_data.to_json, json_headers)
+      results << "#{db_id}, #{postcard_id}, #{response.code}"
+      print "."
+    end
+  end
+
+  results_file = "results.txt"
+  File.open(results_file, "w") do |f|
+    f.write results.join("\n")
+  end
+
+  puts "results written to #{results_file}"
+end
