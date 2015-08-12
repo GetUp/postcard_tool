@@ -96,27 +96,32 @@ if content_file && recipient_file && (image_id || image_url)
   end
 
 
-  if dry_run
-    puts "preparing preview URLs"
-    results = postcard_ids.map do |_, id|
-      "#{API_URL}/postcard/preview/back?postcardId=#{id}&scale=0.5"
+  begin
+    if dry_run
+      puts "preparing preview URLs"
+      results = postcard_ids.map do |_, id|
+        "#{API_URL}/postcard/preview/back?postcardId=#{id}&scale=0.5"
+      end
+    else
+      puts "sending postcards"
+      url = "#{API_URL}/postcard/send"
+      results = []
+      postcard_ids.each do |db_id, postcard_id|
+        request_data = payload.merge(postcardId: postcard_id)
+        response = RestClient.post(url, request_data.to_json, json_headers)
+        results << "#{db_id}, #{postcard_id}, #{response.code}"
+        print "."
+      end
     end
-  else
-    puts "sending postcards"
-    url = "#{API_URL}/postcard/send"
-    results = []
-    postcard_ids.each do |db_id, postcard_id|
-      request_data = payload.merge(postcardId: postcard_id)
-      response = RestClient.post(url, request_data.to_json, json_headers)
-      results << "#{db_id}, #{postcard_id}, #{response.code}"
-      print "."
+  rescue => e
+    require "pry"; binding.pry
+
+  ensure
+    results_file = "results.txt"
+    File.open(results_file, "w") do |f|
+      f.write results.join("\n")
     end
-  end
 
-  results_file = "results.txt"
-  File.open(results_file, "w") do |f|
-    f.write results.join("\n")
+    puts "results written to #{results_file}"
   end
-
-  puts "results written to #{results_file}"
 end

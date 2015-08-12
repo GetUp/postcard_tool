@@ -33,3 +33,9 @@ You can also link to a web-based image:
 Or use a previously uploaded image:
 
     ./postcard_tool -f query_result.csv -r recipient.yml -i "c9234ec7-ed7b-4dc4-ac79-abcdefgh"
+
+## Process
+1. Export CSV from sequel pro the messages you want.  Use a query like `SELECT id, body FROM user_emails WHERE page_id = 2000 AND id NOT IN (<already sent IDs>)`
+2. Scrub the CSV for: test postcards, postcards that are templates only, obscenities
+3. Try a dry run of the script. Eyeball the output postcards for length (some might get cut off) or template text
+4. If all goes well, send the postcards by using the -s flag.
