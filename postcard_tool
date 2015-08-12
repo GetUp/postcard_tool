@@ -7,6 +7,9 @@
 #/ Usage: ./postcard_tool -f query_result.csv -r recipient.yml -u "postcard_front.jpg"
 #/ Usage: ./postcard_tool -f query_result.csv -r recipient.yml -l "http://example.com/postcard_front.jpg"
 #/ Usage: ./postcard_tool -f query_result.csv -r recipient.yml -i "c9234ec7-ed7b-4dc4-ac79-abcdefgh"
+#
+#Staging API URL = http://api.staging.scribblepics.com
+#Production API URL = https://api.scribblepics.com
 
 $stderr.sync = true
 require "optparse"
