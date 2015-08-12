@@ -71,7 +71,7 @@ if content_file && recipient_file && (image_id || image_url)
 
   begin
     CSV.foreach(content_file, headers: true) do |row|
-      name, email = row["body"].split("\r\n")[-3..-2]
+      name, email = row["body"].split("\n")[-3..-2].map(&:strip)
       sender = {
         firstName: name.split[0],
         lastName: name.split[1],
