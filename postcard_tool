@@ -36,7 +36,7 @@ content_file = nil
 recipient_file = nil
 payload = { apiKey: API_KEY }
 verbose = false
-
+sender = { firstName: "GetUp", lastName: "Tech", email: "tech+postcard@getup.org.au" }
 
 file = __FILE__
 ARGV.options do |opts|
@@ -71,12 +71,6 @@ if content_file && recipient_file && (image_id || image_url)
 
   begin
     CSV.foreach(content_file, headers: true) do |row|
-      name, email = row["body"].split("\n")[-3..-2].map(&:strip)
-      sender = {
-        firstName: name.split[0],
-        lastName: name.split[1],
-        email: email
-      }
       message = row["body"].tr("\r","").tr("[]","").gsub(/\n\n+/,"\n\n")
       if message.match(/YOUR NAME/) || message.match(/YOUR REASON/)
         puts "\nmessage id: #{row["id"]} skipped due to unreplaced defaults"
