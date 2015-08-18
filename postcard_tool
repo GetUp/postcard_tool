@@ -13,9 +13,11 @@
 
 $stderr.sync = true
 require "optparse"
+require "logger"
 require "json"
 require "csv"
 require "yaml"
+require "pry"
 
 begin
   require "rest-client"
@@ -51,6 +53,22 @@ ARGV.options do |opts|
   opts.parse!
 end
 
+RestClient.log = Logger.new(STDOUT) if verbose
+
+# the API has been a bit flaky
+def retry_wrapper
+  tries ||= 3
+  yield
+rescue => e
+  if (tries -= 1) > 0
+    puts "tries: #{tries}"
+    sleep 1
+    retry
+  else
+    binding.pry
+  end
+end
+
 if image_file
   url = "#{API_URL}/image/create"
   file = File.new(image_file, "r")
@@ -65,57 +83,46 @@ if content_file && recipient_file && (image_id || image_url)
   url = "#{API_URL}/postcard/create"
   recipient = YAML.load_file(recipient_file).reject{|k,v| v.nil?}
   image = image_url ? {imageUrl: image_url} : {imageId: image_id}
-  template = payload.merge(recipient: recipient).merge(image)
+  template = payload.merge(sender: sender, recipient: recipient).merge(image)
   json_headers = {content_type: :json, accept: :json}
   postcard_ids = []
 
-  begin
-    CSV.foreach(content_file, headers: true) do |row|
-      message = row["body"].tr("\r","").tr("[]","").gsub(/\n\n+/,"\n\n")
-      if message.match(/YOUR NAME/) || message.match(/YOUR REASON/)
-        puts "\nmessage id: #{row["id"]} skipped due to unreplaced defaults"
-        next
-      end
-      postcard = template.merge(sender: sender, message: message)
+  # parse entire CSV up front to detect errors early
+  csv = File.read(content_file).gsub(/\\"/,'""')
+  rows = CSV.new(csv, headers: true).map(&:to_hash)
 
-      RestClient.log = Logger.new(STDOUT) if verbose
-      response = RestClient.post(url, postcard.to_json, json_headers)
-      postcard_ids << [row["id"], JSON.parse(response)["postcardId"]]
+  rows.each do |row|
+    message = row["body"].tr("\r","").tr("[]","").gsub(/\n\n+/,"\n\n")
+    if message.match(/YOUR NAME/) || message.match(/YOUR REASON/)
+      puts "\nmessage id: #{row["id"]} skipped due to unreplaced defaults"
+      next
+    end
+    postcard = template.merge(message: message)
+    response = retry_wrapper { RestClient.post(url, postcard.to_json, json_headers) }
+    postcard_ids << [row["id"], JSON.parse(response)["postcardId"]]
+    print "."
+  end
+
+  if dry_run
+    puts "preparing preview URLs"
+    results = postcard_ids.map do |_, id|
+      "<a href='#{API_URL}/postcard/preview/back?postcardId=#{id}&scale=0.5'>#{id}</a>"
+    end
+  else
+    puts "sending postcards"
+    url = "#{API_URL}/postcard/send"
+    results = []
+    postcard_ids.each do |db_id, postcard_id|
+      request_data = payload.merge(postcardId: postcard_id)
+      response = retry_wrapper { RestClient.post(url, request_data.to_json, json_headers) }
+      results << "#{db_id}, #{postcard_id}, #{response.code}"
       print "."
     end
-    puts ""
-  rescue => e
-    require "pry"; binding.pry
-    puts postcard_ids.map{|a| a.join(",") }.join("\n")
   end
 
-
-  begin
-    if dry_run
-      puts "preparing preview URLs"
-      results = postcard_ids.map do |_, id|
-        "#{API_URL}/postcard/preview/back?postcardId=#{id}&scale=0.5"
-      end
-    else
-      puts "sending postcards"
-      url = "#{API_URL}/postcard/send"
-      results = []
-      postcard_ids.each do |db_id, postcard_id|
-        request_data = payload.merge(postcardId: postcard_id)
-        response = RestClient.post(url, request_data.to_json, json_headers)
-        results << "#{db_id}, #{postcard_id}, #{response.code}"
-        print "."
-      end
-    end
-  rescue => e
-    require "pry"; binding.pry
-
-  ensure
-    results_file = "results.txt"
-    File.open(results_file, "w") do |f|
-      f.write results.join("\n")
-    end
-
-    puts "results written to #{results_file}"
+  results_file = "results.txt"
+  File.open(results_file, "w") do |f|
+    f.write results.join("\n")
   end
+  puts "results written to #{results_file}"
 end
