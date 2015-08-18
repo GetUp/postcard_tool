@@ -104,12 +104,12 @@ if content_file && recipient_file && (image_id || image_url)
   end
 
   if dry_run
-    puts "preparing preview URLs"
+    puts "\npreparing preview URLs"
     results = postcard_ids.map do |_, id|
       "<a href='#{API_URL}/postcard/preview/back?postcardId=#{id}&scale=0.5'>#{id}</a>"
     end
   else
-    puts "sending postcards"
+    puts "\nsending postcards"
     url = "#{API_URL}/postcard/send"
     results = []
     postcard_ids.each do |db_id, postcard_id|
@@ -123,6 +123,7 @@ if content_file && recipient_file && (image_id || image_url)
   results_file = "results.txt"
   File.open(results_file, "w") do |f|
     f.write results.join("\n")
+    f.write("\n")
   end
-  puts "results written to #{results_file}"
+  puts "\nresults written to #{results_file}"
 end
