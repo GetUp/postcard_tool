@@ -115,7 +115,7 @@ if content_file && recipient_file && (image_id || image_url)
     postcard_ids.each do |db_id, postcard_id|
       request_data = payload.merge(postcardId: postcard_id)
       response = retry_wrapper { RestClient.post(url, request_data.to_json, json_headers) }
-      results << "#{db_id}, #{postcard_id}, #{response.code}"
+      results << "#{db_id}, #{postcard_id}"
       print "."
     end
   end
